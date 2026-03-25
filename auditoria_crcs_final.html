@@ -1,0 +1,1232 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestão de Auditorias CRC — CFC 2026</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<!-- =====================================================================
+     FIREBASE SDK  (versão compat — funciona sem build/npm)
+     Documentação: https://firebase.google.com/docs/web/setup
+     ===================================================================== -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-analytics-compat.js"></script>
+
+<style>
+/* ==========================================================================
+   VARIÁVEIS GLOBAIS
+   ========================================================================== */
+:root {
+  --navy:   #003366;
+  --blue:   #004B8D;
+  --light:  #0067C5;
+
+  --gold:   #C8A951;
+  --gold2:  #E8C96A;
+
+  --offwhite: #F4F6FA;
+  --gray:     #E8EDF4;
+
+  /* Cores de status */
+  --s-and: #0067C5;  /* em andamento */
+  --s-at:  #C0392B;  /* atrasada */
+  --s-px:  #C8A951;  /* prazo próximo */
+  --s-ok:  #1A7A4A;  /* concluída */
+  --s-ag:  #6B7A99;  /* aguardando */
+
+  /* Cores por etapa */
+  --e1: #0067C5;
+  --e2: #C8A951;
+  --e3: #1A7A4A;
+
+  /* Layout */
+  --r:  6px;
+  --rm: 10px;
+
+  /* Sombras */
+  --sh1: 0 1px 4px rgba(0,51,102,.10);
+  --sh2: 0 4px 18px rgba(0,51,102,.13);
+  --sh3: 0 8px 36px rgba(0,51,102,.18);
+
+  /* Fontes */
+  --f: 'Barlow', sans-serif;
+  --m: 'JetBrains Mono', monospace;
+  --c: 'Barlow Condensed', sans-serif;
+}
+
+/* ==========================================================================
+   RESET & BASE
+   ========================================================================== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--f); background: var(--offwhite); color: var(--navy); min-height: 100vh; }
+input, select, button, textarea { font-family: inherit; }
+
+/* ==========================================================================
+   BARRA SUPERIOR (TOPBAR)
+   ========================================================================== */
+.topbar { background: var(--navy); padding: 0 28px; display: flex; align-items: center; justify-content: space-between; height: 52px; border-bottom: 3px solid var(--gold); position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 12px rgba(0,0,0,.25); }
+.topbar-brand { display: flex; align-items: center; gap: 12px; }
+.topbar-logo { width: 36px; height: 36px; border-radius: 4px; background: var(--gold); display: flex; align-items: center; justify-content: center; font-family: var(--c); font-size: 13px; font-weight: 800; color: var(--navy); flex-shrink: 0; }
+.topbar-name { color: #fff; font-family: var(--c); font-size: 16px; font-weight: 700; letter-spacing: .04em; }
+.topbar-name span { color: var(--gold); }
+.topbar-right { display: flex; align-items: center; gap: 16px; }
+.topbar-year { font-family: var(--m); font-size: 12px; color: rgba(255,255,255,.45); border: 1px solid rgba(255,255,255,.12); padding: 3px 10px; border-radius: 20px; }
+.btn-notify { background: var(--gold); color: var(--navy); border: none; padding: 7px 16px; border-radius: var(--r); font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; letter-spacing: .03em; transition: background .2s, transform .15s; }
+.btn-notify:hover { background: var(--gold2); transform: translateY(-1px); }
+
+/* Indicador de status da conexão Firebase */
+.fb-status { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.fb-dot { width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; transition: background .3s; }
+.fb-dot.connected { background: #10b981; }
+.fb-dot.error { background: #ef4444; }
+
+/* ==========================================================================
+   LAYOUT PRINCIPAL (sidebar + conteúdo)
+   ========================================================================== */
+.app-layout { display: flex; min-height: calc(100vh - 52px); }
+
+/* ==========================================================================
+   SIDEBAR
+   ========================================================================== */
+.sidebar { width: 220px; background: var(--navy); flex-shrink: 0; display: flex; flex-direction: column; padding: 20px 0; border-right: 1px solid rgba(255,255,255,.07); }
+.sidebar-section { padding: 0 16px; margin-bottom: 24px; }
+.sidebar-label { font-size: 10px; font-weight: 700; color: rgba(255,255,255,.3); text-transform: uppercase; letter-spacing: .1em; margin-bottom: 8px; padding: 0 4px; }
+.nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: var(--r); cursor: pointer; color: rgba(255,255,255,.6); font-size: 13px; font-weight: 500; transition: all .15s; margin-bottom: 2px; }
+.nav-item:hover { background: rgba(255,255,255,.07); color: #fff; }
+.nav-item.active { background: rgba(200,169,81,.18); color: var(--gold); }
+.nav-item svg { width: 16px; height: 16px; flex-shrink: 0; opacity: .8; }
+.nav-item.active svg { opacity: 1; }
+.sidebar-divider { height: 1px; background: rgba(255,255,255,.08); margin: 8px 16px 16px; }
+
+/* Filtros na sidebar */
+.sidebar-filter { padding: 0 16px; }
+.filter-group { margin-bottom: 16px; }
+.filter-group label { font-size: 10px; font-weight: 700; color: rgba(255,255,255,.3); text-transform: uppercase; letter-spacing: .08em; display: block; margin-bottom: 6px; }
+.filter-select { width: 100%; padding: 8px 10px; border-radius: var(--r); border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.07); color: rgba(255,255,255,.8); font-size: 12px; cursor: pointer; outline: none; }
+.filter-select:focus { border-color: var(--gold); }
+.filter-select option { background: #1a2a44; color: #fff; }
+.search-input-sb { width: 100%; padding: 8px 10px 8px 32px; border-radius: var(--r); border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.07); color: rgba(255,255,255,.8); font-size: 12px; outline: none; }
+.search-input-sb:focus { border-color: var(--gold); }
+.search-input-sb::placeholder { color: rgba(255,255,255,.3); }
+.search-wrap-sb { position: relative; }
+.search-wrap-sb svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: rgba(255,255,255,.3); width: 13px; height: 13px; pointer-events: none; }
+.btn-reset-sb { width: 100%; padding: 7px; border-radius: var(--r); border: 1px solid rgba(255,255,255,.12); background: transparent; color: rgba(255,255,255,.4); font-size: 11px; cursor: pointer; font-weight: 600; letter-spacing: .04em; transition: all .15s; margin-top: 4px; }
+.btn-reset-sb:hover { background: rgba(255,255,255,.07); color: rgba(255,255,255,.7); }
+
+/* ==========================================================================
+   ÁREA DE CONTEÚDO PRINCIPAL
+   ========================================================================== */
+.main-content { flex: 1; overflow: auto; display: flex; flex-direction: column; }
+.page-header { background: #fff; border-bottom: 1px solid var(--gray); padding: 20px 28px 16px; display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.page-header h1 { font-family: var(--c); font-size: 24px; font-weight: 800; color: var(--navy); letter-spacing: .01em; margin-bottom: 2px; }
+.page-header p { font-size: 12px; color: var(--s-ag); }
+.btn-export { padding: 8px 16px; border-radius: var(--r); border: 1px solid var(--gray); background: #fff; font-size: 12px; font-weight: 600; cursor: pointer; color: var(--navy); display: flex; align-items: center; gap: 6px; transition: all .15s; }
+.btn-export:hover { background: var(--offwhite); border-color: var(--blue); }
+
+/* ==========================================================================
+   FAIXA DE ESTATÍSTICAS
+   ========================================================================== */
+.stats-strip { display: grid; grid-template-columns: repeat(6, 1fr); background: #fff; border-bottom: 1px solid var(--gray); }
+.stat-tile { padding: 14px 20px; border-right: 1px solid var(--gray); position: relative; overflow: hidden; transition: background .15s; cursor: pointer; }
+.stat-tile:last-child { border-right: none; }
+.stat-tile::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 3px; background: var(--tc); }
+.stat-tile:hover { background: var(--offwhite); }
+.stat-label { font-size: 10px; font-weight: 700; color: var(--s-ag); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 6px; }
+.stat-value { font-family: var(--m); font-size: 26px; font-weight: 600; color: var(--tc); line-height: 1; }
+.stat-sub { font-size: 10px; color: var(--s-ag); margin-top: 3px; }
+
+/* ==========================================================================
+   ÁREA DE KPIs (barras por responsável + donut de status)
+   ========================================================================== */
+.kpi-area { padding: 16px 28px; background: #fff; border-bottom: 1px solid var(--gray); display: flex; gap: 24px; align-items: flex-start; }
+.kpi-block { flex: 1; }
+.kpi-title { font-size: 11px; font-weight: 700; color: var(--s-ag); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 10px; }
+.kpi-bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.kpi-bar-name { font-size: 11px; font-weight: 600; color: var(--navy); width: 56px; flex-shrink: 0; }
+.kpi-bar-track { flex: 1; height: 8px; background: var(--gray); border-radius: 4px; overflow: hidden; }
+.kpi-bar-fill { height: 100%; border-radius: 4px; transition: width .5s; }
+.kpi-bar-pct { font-family: var(--m); font-size: 10px; color: var(--s-ag); width: 36px; text-align: right; }
+.kpi-donut { width: 200px; flex-shrink: 0; }
+.kpi-legend { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+.kpi-legend-item { display: flex; align-items: center; gap: 7px; font-size: 11px; }
+.kpi-legend-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+
+/* ==========================================================================
+   GRID DE CARDS
+   ========================================================================== */
+.cards-area { padding: 20px 28px 36px; flex: 1; }
+.cards-area-hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.cards-area-title { font-family: var(--c); font-size: 14px; font-weight: 700; color: var(--s-ag); text-transform: uppercase; letter-spacing: .07em; }
+.view-toggle { display: flex; gap: 4px; }
+.view-btn { width: 30px; height: 30px; border-radius: var(--r); border: 1px solid var(--gray); background: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--s-ag); transition: all .15s; }
+.view-btn.active, .view-btn:hover { background: var(--navy); color: #fff; border-color: var(--navy); }
+.view-btn svg { width: 14px; height: 14px; }
+.cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.cards-grid.lv { grid-template-columns: 1fr; }
+
+/* Card individual de auditoria */
+.audit-card { background: #fff; border-radius: var(--rm); padding: 16px 18px; border: 1px solid var(--gray); cursor: pointer; box-shadow: var(--sh1); transition: transform .18s, box-shadow .18s, border-color .18s; position: relative; overflow: hidden; }
+.audit-card:hover { transform: translateY(-2px); box-shadow: var(--sh2); border-color: #b8c8e0; }
+.audit-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--ca); }
+.card-hd { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+.card-unit { font-family: var(--c); font-size: 20px; font-weight: 800; color: var(--navy); }
+.card-meta { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+.meta-tag { font-size: 10px; color: var(--s-ag); background: var(--offwhite); padding: 2px 8px; border-radius: 20px; border: 1px solid var(--gray); display: flex; align-items: center; gap: 4px; font-weight: 500; }
+.sbadge { font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 20px; white-space: nowrap; letter-spacing: .04em; flex-shrink: 0; }
+.prog-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+.prog-label { font-size: 11px; color: var(--s-ag); font-weight: 500; }
+.prog-count { font-family: var(--m); font-size: 11px; font-weight: 600; color: var(--navy); }
+.prog-track { height: 5px; background: var(--gray); border-radius: 3px; overflow: hidden; margin-bottom: 10px; }
+.prog-fill { height: 100%; border-radius: 3px; transition: width .4s; }
+.etapas-row { display: flex; gap: 5px; }
+.ec { flex: 1; padding: 4px 6px; border-radius: 4px; font-size: 9px; text-align: center; font-weight: 600; border: 1px solid var(--gray); color: var(--s-ag); background: var(--offwhite); letter-spacing: .03em; text-transform: uppercase; }
+.ec.done { background: #eafaf2; border-color: #a8d8bc; color: var(--e3); }
+.ec.active { border-width: 1.5px; }
+.dl-warn { position: absolute; top: 14px; right: 14px; font-size: 9px; font-weight: 700; color: #7a4a00; background: #fff3cd; border: 1px solid #f0c040; border-radius: 20px; padding: 2px 7px; letter-spacing: .04em; }
+
+/* ==========================================================================
+   TELA DE DETALHE (checklist)
+   ========================================================================== */
+.detail-topbar { background: var(--navy); padding: 16px 28px; color: #fff; display: flex; align-items: center; gap: 16px; border-bottom: 3px solid var(--gold); }
+.btn-back { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.15); border-radius: var(--r); padding: 7px 14px; color: #fff; cursor: pointer; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; transition: background .15s; font-family: var(--f); flex-shrink: 0; }
+.btn-back:hover { background: rgba(255,255,255,.18); }
+.detail-info { flex: 1; }
+.detail-unit { font-family: var(--c); font-size: 28px; font-weight: 800; }
+.detail-meta { display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap; align-items: center; }
+.detail-pct-block { text-align: right; flex-shrink: 0; }
+.detail-pct { font-family: var(--m); font-size: 38px; font-weight: 600; color: var(--gold); line-height: 1; }
+.detail-pct-sub { font-size: 11px; opacity: .5; margin-top: 2px; }
+.detail-prog { margin: 14px 28px 0; height: 6px; background: rgba(255,255,255,.12); border-radius: 3px; overflow: hidden; }
+.detail-prog-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--light), var(--gold)); transition: width .5s; }
+
+/* Cards de período de cada etapa */
+.periods-area { padding: 16px 28px 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.period-card { background: #fff; border-radius: var(--rm); padding: 14px 16px; border: 1.5px solid var(--gray); box-shadow: var(--sh1); }
+.period-card.active { border-color: var(--eac); }
+.period-hd { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.period-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.period-name { font-size: 12px; font-weight: 700; flex: 1; }
+.period-dates { font-size: 12px; color: var(--s-ag); display: flex; align-items: center; gap: 5px; }
+.edit-btn { background: none; border: none; cursor: pointer; color: var(--s-ag); padding: 3px; border-radius: 4px; display: flex; align-items: center; transition: all .15s; }
+.edit-btn:hover { color: var(--blue); background: var(--offwhite); }
+.period-warn { margin-top: 7px; font-size: 10px; color: #7a4a00; background: #fff8e6; border: 1px solid #f0c040; border-radius: 4px; padding: 4px 8px; display: flex; align-items: center; gap: 5px; font-weight: 600; }
+
+/* Checklist de tarefas */
+.checklist-area { padding: 16px 28px 40px; }
+.etapa-sec { margin-bottom: 20px; }
+.etapa-hd-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.etapa-pill { font-family: var(--c); font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 3px; color: #fff; letter-spacing: .06em; }
+.etapa-title { font-size: 14px; font-weight: 700; color: var(--navy); }
+.etapa-prog { font-family: var(--m); font-size: 11px; color: var(--s-ag); }
+.task-list { display: flex; flex-direction: column; gap: 3px; }
+.task-row { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-radius: 8px; border: 1px solid var(--gray); background: var(--offwhite); transition: all .15s; cursor: not-allowed; opacity: .45; }
+.task-row.done { opacity: 1; }
+.task-row.can-do { cursor: pointer; opacity: 1; }
+.task-row.can-do:hover { transform: translateX(4px); box-shadow: var(--sh1); }
+.task-row.next { background: #fff; border-width: 1.5px; opacity: 1; }
+.task-check { width: 20px; height: 20px; border-radius: 5px; border: 2px solid var(--gray); background: #fff; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #fff; }
+.task-text { flex: 1; font-size: 13px; color: var(--navy); font-weight: 400; }
+.task-row.done .task-text { text-decoration: line-through; color: var(--s-ag); font-weight: 500; }
+.task-row.next .task-text { font-weight: 600; }
+.task-badge-next { font-size: 9px; font-weight: 700; padding: 2px 8px; border-radius: 20px; letter-spacing: .05em; flex-shrink: 0; }
+.task-locked { font-size: 10px; color: var(--s-ag); flex-shrink: 0; }
+
+/* ==========================================================================
+   MODAIS (editar prazo + notificações)
+   ========================================================================== */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; animation: fadeIn .15s ease; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.modal { background: #fff; border-radius: var(--rm); padding: 28px; max-width: 460px; width: 100%; box-shadow: var(--sh3); animation: slideUp .2s ease; border-top: 4px solid var(--gold); }
+@keyframes slideUp { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+.modal-title { font-family: var(--c); font-size: 20px; font-weight: 800; color: var(--navy); margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+.modal-sub { font-size: 12px; color: var(--s-ag); margin-bottom: 20px; }
+.modal-field { margin-bottom: 14px; }
+.modal-field label { display: block; font-size: 11px; font-weight: 700; color: var(--navy); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .05em; }
+.modal-input { width: 100%; padding: 9px 12px; border-radius: var(--r); border: 1.5px solid var(--gray); font-size: 13px; outline: none; font-family: var(--f); color: var(--navy); transition: border-color .15s; }
+.modal-input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(0,75,141,.1); }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+.btn-cancel { padding: 9px 18px; border-radius: var(--r); border: 1.5px solid var(--gray); background: #fff; font-size: 13px; cursor: pointer; color: var(--s-ag); font-weight: 600; transition: all .15s; }
+.btn-cancel:hover { background: var(--offwhite); }
+.btn-save { padding: 9px 20px; border-radius: var(--r); border: none; background: var(--navy); font-size: 13px; cursor: pointer; color: #fff; font-weight: 700; transition: background .15s; }
+.btn-save:hover { background: var(--blue); }
+
+/* Modal de notificações */
+.notify-modal { max-width: 540px; }
+.notif-sec { margin-bottom: 18px; }
+.notif-sec-title { font-size: 11px; font-weight: 700; color: var(--s-ag); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--gray); }
+.email-list { display: flex; flex-direction: column; gap: 5px; }
+.email-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--gray); border-radius: var(--r); background: var(--offwhite); }
+.email-item-addr { flex: 1; font-size: 13px; color: var(--navy); }
+.email-item-rm { background: none; border: none; cursor: pointer; color: var(--s-ag); padding: 2px 5px; border-radius: 4px; font-size: 16px; line-height: 1; transition: all .15s; }
+.email-item-rm:hover { color: var(--s-at); background: #fee; }
+.add-email-row { display: flex; gap: 8px; margin-top: 8px; }
+.add-email-inp { flex: 1; padding: 8px 12px; border-radius: var(--r); border: 1.5px solid var(--gray); font-size: 13px; outline: none; font-family: var(--f); }
+.add-email-inp:focus { border-color: var(--blue); }
+.btn-add-email { padding: 8px 14px; border-radius: var(--r); border: none; background: var(--navy); color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; transition: background .15s; }
+.btn-add-email:hover { background: var(--blue); }
+.days-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.day-chip { padding: 5px 12px; border-radius: 20px; border: 1.5px solid var(--gray); background: #fff; font-size: 12px; font-weight: 600; cursor: pointer; color: var(--s-ag); transition: all .15s; font-family: var(--m); }
+.day-chip.sel { background: var(--navy); color: var(--gold); border-color: var(--navy); }
+.notif-preview { background: #f0f5ff; border: 1px solid #c0d0ee; border-radius: var(--r); padding: 12px 14px; margin-top: 8px; }
+.notif-preview-title { font-size: 11px; font-weight: 700; color: var(--blue); margin-bottom: 6px; }
+.notif-preview-body { font-size: 12px; color: var(--navy); line-height: 1.6; }
+.notif-log { max-height: 150px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+.log-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: var(--r); font-size: 11px; }
+.log-item.sent { background: #eafaf2; color: var(--e3); }
+.log-item-time { font-family: var(--m); font-size: 10px; opacity: .7; margin-left: auto; }
+
+/* ==========================================================================
+   TOAST (notificação temporária no canto da tela)
+   ========================================================================== */
+.toast { position: fixed; bottom: 24px; right: 24px; z-index: 9999; background: var(--navy); color: #fff; padding: 12px 20px; border-radius: var(--rm); font-size: 13px; font-weight: 600; box-shadow: var(--sh3); border-left: 4px solid var(--gold); animation: toastIn .3s ease; display: flex; align-items: center; gap: 8px; }
+@keyframes toastIn { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* Estado vazio (sem resultados) */
+.empty-state { grid-column: 1/-1; text-align: center; padding: 56px 20px; color: var(--s-ag); }
+
+/* ==========================================================================
+   RESPONSIVO
+   ========================================================================== */
+@media (max-width: 900px) {
+  .sidebar { display: none; }
+  .stats-strip { grid-template-columns: repeat(3, 1fr); }
+  .kpi-area { flex-direction: column; }
+  .kpi-donut { width: 100%; }
+  .periods-area { grid-template-columns: 1fr; }
+  .cards-area, .checklist-area, .periods-area { padding-left: 16px; padding-right: 16px; }
+  .page-header { padding: 14px 16px; }
+}
+@media (max-width: 600px) {
+  .stats-strip { grid-template-columns: repeat(2, 1fr); }
+  .topbar { padding: 0 14px; }
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+/* ============================================================================
+   ██████╗  █████╗ ███████╗███████╗    ██████╗ ███████╗
+   ██╔══██╗██╔══██╗██╔════╝██╔════╝    ██╔══██╗██╔════╝
+   ██████╔╝███████║███████╗█████╗      ██║  ██║█████╗
+   ██╔══██╗██╔══██║╚════██║██╔══╝      ██║  ██║██╔══╝
+   ██████╔╝██║  ██║███████║███████╗    ██████╔╝███████╗
+   ╚═════╝ ╚═╝  ╚═╝╚══════╝╚══════╝    ╚═════╝ ╚══════╝
+
+   SEÇÃO 1 — CONFIGURAÇÃO DO FIREBASE
+   =========================================================================
+
+   PASSO A PASSO:
+   1. Acesse https://console.firebase.google.com
+   2. Clique em "Adicionar projeto" → dê um nome (ex: auditcrc-2026)
+   3. Vá em "Firestore Database" → "Criar banco de dados"
+      → Escolha "Modo de teste" (30 dias de acesso livre)
+      → Região: southamerica-east1 (São Paulo)
+   4. Vá em "Configurações do projeto" (ícone ⚙️) → "Seus aplicativos"
+   5. Clique no ícone </> (Web) → registre com qualquer nome
+   6. Copie o objeto firebaseConfig e cole SUBSTITUINDO os valores abaixo
+   ========================================================================= */
+
+const firebaseConfig = {
+  apiKey:            "AIzaSyDxhaOWGqiCAjDymRNFrLODE1BSwsPibw0",
+  authDomain:        "auditcrc2.firebaseapp.com",
+  projectId:         "auditcrc2",
+  storageBucket:     "auditcrc2.firebasestorage.app",
+  messagingSenderId: "249433061605",
+  appId:             "1:249433061605:web:a3e279edff6846ecc37c0c",
+  measurementId:     "G-5RWQR7830Q"
+};
+
+/* ============================================================================
+   SEÇÃO 2 — INICIALIZAÇÃO DO FIREBASE
+   Não precisa mexer aqui.
+   ========================================================================= */
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+firebase.analytics(); // Google Analytics (opcional)
+
+// Indicador visual de conexão (ponto verde/amarelo/vermelho na topbar)
+function setFbStatus(state) {
+  const dot = document.querySelector('.fb-dot');
+  if (!dot) return;
+  dot.className = 'fb-dot ' + (state === 'ok' ? 'connected' : state === 'error' ? 'error' : '');
+}
+
+/* ============================================================================
+   SEÇÃO 3 — DADOS DAS TAREFAS
+   Lista completa das 26 tarefas em 3 etapas.
+   e = número da etapa (1, 2 ou 3)
+   ========================================================================= */
+
+const TAREFAS = [
+  // ETAPA 1: PLANEJAMENTO (7 tarefas)
+  { id: 1,  e: 1, n: "Planejamento dos trabalhos" },
+  { id: 2,  e: 1, n: "Definição de escopo" },
+  { id: 3,  e: 1, n: "Elaboração do calendário das atividades" },
+  { id: 4,  e: 1, n: "Aprovação do planejamento" },
+  { id: 5,  e: 1, n: "Elaboração da RDI" },
+  { id: 6,  e: 1, n: "Abertura das auditorias no SEI" },
+  { id: 7,  e: 1, n: "Envio da RDI" },
+
+  // ETAPA 2: EXECUÇÃO (12 tarefas)
+  { id: 8,  e: 2, n: "Conferência da resposta da RDI" },
+  { id: 9,  e: 2, n: "Pré-auditoria" },
+  { id: 10, e: 2, n: "Envio da seleção da pré-auditoria" },
+  { id: 11, e: 2, n: "Recepção do Relato Integrado e prestações de contas" },
+  { id: 12, e: 2, n: "Emissão de passagens e diárias" },
+  { id: 13, e: 2, n: "Reunião de abertura dos trabalhos" },
+  { id: 14, e: 2, n: "Execução dos testes de auditoria" },
+  { id: 15, e: 2, n: "Pauta da reunião de encerramento" },
+  { id: 16, e: 2, n: "Preparação da infraestrutura para reunião de encerramento" },
+  { id: 17, e: 2, n: "Reunião de encerramento dos trabalhos" },
+  { id: 18, e: 2, n: "Análise das demonstrações contábeis" },
+  { id: 19, e: 2, n: "Elaboração do relatório de viagens" },
+
+  // ETAPA 3: RELATOS (7 tarefas)
+  { id: 20, e: 3, n: "Elaboração da Nota de Auditoria" },
+  { id: 21, e: 3, n: "Elaboração da redação análise da contabilidade" },
+  { id: 22, e: 3, n: "Revisão da nota de auditoria" },
+  { id: 23, e: 3, n: "Correções da nota de auditoria" },
+  { id: 24, e: 3, n: "Encaminhamento da nota de auditoria para o CRC/CFC" },
+  { id: 25, e: 3, n: "Recepção e análise das manifestações da Nota de Auditoria" },
+  { id: 26, e: 3, n: "Apresentação da Nota de Auditoria à Câmara de Controle Interno" },
+];
+
+// Mapeamentos de etapa
+const EN = { 1: "Planejamento", 2: "Execução", 3: "Relatos" };
+const EC = { 1: "#0067C5", 2: "#C8A951", 3: "#1A7A4A" };
+const EB = { 1: "#e8f1fb", 2: "#fdf6e3", 3: "#e8f5ee" };
+
+/* ============================================================================
+   SEÇÃO 4 — DADOS INICIAIS DAS AUDITORIAS
+   Estes dados são usados apenas uma vez: na primeira vez que o site abre,
+   para popular o Firestore. Depois disso, tudo vem do banco.
+
+   Campos:
+     u  = unidade (ex: "CRCMA")
+     r  = responsável
+     f  = formato (remota | in loco)
+     p1 = período da etapa 1 (DD/MM/AAAA a DD/MM/AAAA)
+     p2 = período da etapa 2
+     p3 = período da etapa 3
+     c  = tarefas concluídas (array de IDs) — começa vazio
+   ========================================================================= */
+
+const IA = [
+  { id: 1,  u: "CRCMA", r: "ALGARENE", f: "remota",  p1: "26/01/2026 a 30/01/2026", p2: "02/02/2026 a 06/02/2026", p3: "09/02/2026 a 13/02/2026", c: [] },
+  { id: 2,  u: "CRCSC", r: "ALGARENE", f: "remota",  p1: "16/02/2026 a 20/02/2026", p2: "23/02/2026 a 27/02/2026", p3: "02/03/2026 a 06/03/2026", c: [] },
+  { id: 3,  u: "CRCMT", r: "ALGARENE", f: "remota",  p1: "23/02/2026 a 27/02/2026", p2: "02/03/2026 a 06/03/2026", p3: "09/03/2026 a 13/03/2026", c: [] },
+  { id: 4,  u: "CRCRJ", r: "ALGARENE", f: "remota",  p1: "09/03/2026 a 13/03/2026", p2: "16/03/2026 a 20/03/2026", p3: "23/03/2026 a 27/03/2026", c: [] },
+  { id: 5,  u: "CRCCE", r: "ALGARENE", f: "remota",  p1: "16/03/2026 a 20/03/2026", p2: "23/03/2026 a 27/03/2026", p3: "30/03/2026 a 03/04/2026", c: [] },
+  { id: 6,  u: "CRCTO", r: "CARLOS",   f: "remota",  p1: "16/03/2026 a 20/03/2026", p2: "23/03/2026 a 27/03/2026", p3: "30/03/2026 a 03/04/2026", c: [] },
+  { id: 7,  u: "CRCAC", r: "ALGARENE", f: "remota",  p1: "23/03/2026 a 27/03/2026", p2: "30/03/2026 a 03/04/2026", p3: "06/04/2026 a 10/04/2026", c: [] },
+  { id: 8,  u: "CRCPR", r: "MÁRCIO",   f: "remota",  p1: "23/03/2026 a 27/03/2026", p2: "30/03/2026 a 03/04/2026", p3: "06/04/2026 a 10/04/2026", c: [] },
+  { id: 9,  u: "CRCSP", r: "DIRCEU",   f: "in loco", p1: "26/01/2026 a 30/01/2026", p2: "02/02/2026 a 06/02/2026", p3: "09/02/2026 a 13/02/2026", c: [] },
+  { id: 10, u: "CRCPA", r: "CARLOS",   f: "in loco", p1: "16/02/2026 a 20/02/2026", p2: "23/02/2026 a 27/02/2026", p3: "02/03/2026 a 06/03/2026", c: [] },
+  { id: 11, u: "CRCES", r: "CARLOS",   f: "in loco", p1: "23/02/2026 a 27/02/2026", p2: "02/03/2026 a 06/03/2026", p3: "09/03/2026 a 13/03/2026", c: [] },
+  { id: 12, u: "CFC",   r: "ALGARENE", f: "in loco", p1: "02/03/2026 a 20/03/2026", p2: "09/03/2026 a 27/03/2026", p3: "16/03/2026 a 03/04/2026", c: [] },
+  { id: 13, u: "CRCRN", r: "MÁRCIO",   f: "in loco", p1: "09/03/2026 a 13/03/2026", p2: "16/03/2026 a 20/03/2026", p3: "23/03/2026 a 27/03/2026", c: [] },
+  { id: 14, u: "CRCRO", r: "DIRCEU",   f: "in loco", p1: "09/03/2026 a 13/03/2026", p2: "16/03/2026 a 20/03/2026", p3: "23/03/2026 a 27/03/2026", c: [] },
+  { id: 15, u: "CRCPB", r: "CARLOS",   f: "in loco", p1: "06/04/2026 a 10/04/2026", p2: "13/04/2026 a 17/04/2026", p3: "20/04/2026 a 24/04/2026", c: [] },
+  { id: 16, u: "CRCAL", r: "MÁRCIO",   f: "in loco", p1: "06/04/2026 a 10/04/2026", p2: "13/04/2026 a 17/04/2026", p3: "20/04/2026 a 24/04/2026", c: [] },
+  { id: 17, u: "CRCPI", r: "DIRCEU",   f: "in loco", p1: "06/04/2026 a 10/04/2026", p2: "13/04/2026 a 17/04/2026", p3: "20/04/2026 a 24/04/2026", c: [] },
+  { id: 18, u: "CRCMS", r: "CARLOS",   f: "in loco", p1: "04/05/2026 a 08/05/2026", p2: "11/05/2026 a 15/05/2026", p3: "18/05/2026 a 22/05/2026", c: [] },
+  { id: 19, u: "CRCBA", r: "DIRCEU",   f: "in loco", p1: "04/05/2026 a 08/05/2026", p2: "11/05/2026 a 15/05/2026", p3: "18/05/2026 a 22/05/2026", c: [] },
+  { id: 20, u: "CRCAP", r: "CARLOS",   f: "in loco", p1: "18/05/2026 a 22/05/2026", p2: "25/05/2026 a 29/05/2026", p3: "01/06/2026 a 05/06/2026", c: [] },
+  { id: 21, u: "CRCAM", r: "DIRCEU",   f: "in loco", p1: "18/05/2026 a 22/05/2026", p2: "25/05/2026 a 29/05/2026", p3: "01/06/2026 a 05/06/2026", c: [] },
+  { id: 22, u: "CRCDF", r: "CARLOS",   f: "in loco", p1: "08/06/2026 a 12/06/2026", p2: "15/06/2026 a 19/06/2026", p3: "22/06/2026 a 26/06/2026", c: [] },
+  { id: 23, u: "CRCRS", r: "MÁRCIO",   f: "in loco", p1: "08/06/2026 a 12/06/2026", p2: "15/06/2026 a 19/06/2026", p3: "22/06/2026 a 26/06/2026", c: [] },
+  { id: 24, u: "CRCGO", r: "DIRCEU",   f: "in loco", p1: "08/06/2026 a 12/06/2026", p2: "15/06/2026 a 19/06/2026", p3: "22/06/2026 a 26/06/2026", c: [] },
+  { id: 25, u: "CRCMG", r: "MÁRCIO",   f: "in loco", p1: "22/06/2026 a 26/06/2026", p2: "29/06/2026 a 03/07/2026", p3: "06/07/2026 a 10/07/2026", c: [] },
+  { id: 26, u: "CRCSE", r: "MÁRCIO",   f: "in loco", p1: "06/07/2026 a 10/07/2026", p2: "13/07/2026 a 17/07/2026", p3: "20/07/2026 a 24/07/2026", c: [] },
+  { id: 27, u: "CRCRR", r: "MÁRCIO",   f: "in loco", p1: "20/07/2026 a 24/07/2026", p2: "27/07/2026 a 31/07/2026", p3: "03/08/2026 a 07/08/2026", c: [] },
+  { id: 28, u: "CRCPE", r: "DIRCEU",   f: "in loco", p1: "20/07/2026 a 24/07/2026", p2: "27/07/2026 a 31/07/2026", p3: "03/08/2026 a 07/08/2026", c: [] },
+];
+
+/* ============================================================================
+   SEÇÃO 5 — ESTADO DA APLICAÇÃO
+   Variáveis que controlam o que está sendo exibido na tela.
+   ========================================================================= */
+
+let audits   = [];           // lista completa de auditorias (vinda do Firestore)
+let selId    = null;         // ID da auditoria aberta (null = dashboard)
+let fResp    = "Todos";      // filtro de responsável
+let fFmt     = "Todos";      // filtro de formato
+let fSt      = "Todos";      // filtro de status
+let srch     = "";           // texto de busca
+let listView = false;        // false = grade, true = lista
+let modal    = null;         // modal aberto: null | "ep" (editar prazo) | "notify"
+let mData    = {};           // dados temporários do modal
+
+// Configurações de notificação (persistidas no Firestore)
+let NS = { emails: [], alertDays: [7, 3, 1] };
+let NL = []; // histórico de notificações enviadas
+
+/* ============================================================================
+   SEÇÃO 6 — FIREBASE: SEED + LISTENER EM TEMPO REAL
+   ========================================================================= */
+
+async function initFirebase() {
+  try {
+    const col = db.collection("auditorias");
+    const snap = await col.get();
+
+    // Se o banco está vazio, popula com os dados iniciais (seed)
+    if (snap.empty) {
+      const batch = db.batch();
+      IA.forEach(a => {
+        batch.set(col.doc(String(a.id)), a);
+      });
+      await batch.commit();
+      showToast("✓ Banco de dados inicializado com sucesso");
+    }
+
+    // Carrega configurações de notificação
+    const cfgSnap = await db.collection("config").doc("notificacoes").get();
+    if (cfgSnap.exists) {
+      NS = cfgSnap.data();
+    }
+    const logSnap = await db.collection("config").doc("log_notificacoes").get();
+    if (logSnap.exists) {
+      NL = logSnap.data().items || [];
+    }
+
+    // Listener em tempo real — atualiza a tela automaticamente quando
+    // qualquer usuário faz uma alteração no banco
+    col.orderBy("id").onSnapshot(snapshot => {
+      audits = snapshot.docs.map(d => d.data());
+      setFbStatus('ok');
+      render();
+    }, err => {
+      console.error("Firestore erro:", err);
+      setFbStatus('error');
+      showToast("⚠ Erro de conexão com o Firebase");
+    });
+
+    setTimeout(checkNotifs, 1000);
+
+  } catch (err) {
+    console.error("Firebase init erro:", err);
+    setFbStatus('error');
+    // Fallback para dados locais se o Firebase não estiver configurado
+    audits = JSON.parse(JSON.stringify(IA));
+    render();
+    showToast("⚠ Firebase não configurado — usando dados locais");
+  }
+}
+
+/* ============================================================================
+   SEÇÃO 7 — OPERAÇÕES NO FIRESTORE (salvar alterações)
+   ========================================================================= */
+
+// Salva o estado de tarefas de uma auditoria no Firestore
+async function saveAudit(a) {
+  try {
+    await db.collection("auditorias").doc(String(a.id)).update({ c: a.c });
+  } catch (err) {
+    console.error("Erro ao salvar tarefa:", err);
+    showToast("⚠ Erro ao salvar — verifique sua conexão");
+  }
+}
+
+// Salva os períodos (prazos) de uma auditoria
+async function savePeriods(a) {
+  try {
+    await db.collection("auditorias").doc(String(a.id)).update({
+      p1: a.p1, p2: a.p2, p3: a.p3
+    });
+  } catch (err) {
+    console.error("Erro ao salvar prazo:", err);
+    showToast("⚠ Erro ao salvar prazo");
+  }
+}
+
+// Salva configurações de notificação
+async function saveNotifConfig() {
+  try {
+    await db.collection("config").doc("notificacoes").set(NS);
+    await db.collection("config").doc("log_notificacoes").set({ items: NL });
+  } catch (err) {
+    console.error("Erro ao salvar notificações:", err);
+  }
+}
+
+/* ============================================================================
+   SEÇÃO 8 — FUNÇÕES UTILITÁRIAS
+   ========================================================================= */
+
+// Encontra uma auditoria pelo ID
+function fa(id) { return audits.find(a => a.id === id); }
+
+// Escapa HTML para evitar injeção (segurança)
+function esc(t) { const d = document.createElement("div"); d.textContent = String(t); return d.innerHTML; }
+
+// Converte "DD/MM/AAAA" para objeto Date
+function pdb(s) { const [d, m, y] = s.trim().split("/"); return new Date(+y, +m - 1, +d); }
+
+// Extrai data de fim de um período "DD/MM a DD/MM"
+function pend(ps)   { return pdb(ps.split(" a ")[1]); }
+function pstart(ps) { return pdb(ps.split(" a ")[0]); }
+
+// Calcula dias restantes até uma data (negativo = atrasado)
+function du(dt) {
+  const n = new Date(); n.setHours(0, 0, 0, 0);
+  return Math.round((dt - n) / 86400000);
+}
+
+/* ============================================================================
+   SEÇÃO 9 — LÓGICA DE STATUS E PROGRESSO
+   ========================================================================= */
+
+// Retorna o número da etapa atual (1, 2 ou 3)
+function getCE(a) {
+  if (a.c.length === 26) return 4;
+  const last = a.c.length ? Math.max(...a.c) : 0;
+  const t = TAREFAS.find(x => x.id === last + 1);
+  return t ? t.e : 1;
+}
+
+// Retorna prazo da etapa atual com dias restantes
+function getAD(a) {
+  const et = getCE(a); if (et > 3) return null;
+  const end = pend(a["p" + et]); const days = du(end);
+  return { etapa: et, end, days, period: a["p" + et] };
+}
+
+// Retorna o status de uma auditoria
+// Possíveis valores: concluida | atrasada | proxima | em_andamento | aguardando
+function getSt(a) {
+  if (a.c.length === 26) return "concluida";
+  const dl = getAD(a); if (!dl) return "concluida";
+  if (dl.days < 0) return "atrasada";
+  if (dl.days <= 7) return "proxima";
+  if (du(pstart(a["p" + dl.etapa])) <= 0) return "em_andamento";
+  return "aguardando";
+}
+
+// Labels e cores por status
+const SL = { concluida: "Concluída", atrasada: "Atrasada", proxima: "Prazo Próximo", em_andamento: "Em Andamento", aguardando: "Aguardando" };
+const SC = { concluida: "#1A7A4A", atrasada: "#C0392B", proxima: "#7a4a00", em_andamento: "#0067C5", aguardando: "#6B7A99" };
+const SB = { concluida: "#eafaf2", atrasada: "#fde8e6", proxima: "#fff8e6", em_andamento: "#e8f1fb", aguardando: "#f0f2f8" };
+
+// Calcula totais para a faixa de estatísticas
+function stats() {
+  const s = { total: audits.length, concluida: 0, atrasada: 0, proxima: 0, em_andamento: 0, aguardando: 0, avg: 0 };
+  audits.forEach(a => { s[getSt(a)]++; s.avg += a.c.length; });
+  s.avg = Math.round((s.avg / (audits.length * 26)) * 100);
+  return s;
+}
+
+// Agrupa progresso por responsável (para o gráfico de barras)
+function byResp() {
+  const rs = [...new Set(audits.map(a => a.r))];
+  return rs.map(r => {
+    const g = audits.filter(a => a.r === r);
+    const t = g.reduce((s, a) => s + a.c.length, 0);
+    return { name: r, pct: Math.round((t / (g.length * 26)) * 100), count: g.length };
+  }).sort((a, b) => b.pct - a.pct);
+}
+
+// Filtra auditorias conforme os filtros ativos na sidebar
+function filtered() {
+  return audits.filter(a => {
+    if (fResp !== "Todos" && a.r !== fResp) return false;
+    if (fFmt !== "Todos"  && a.f !== fFmt)  return false;
+    if (fSt  !== "Todos"  && getSt(a) !== fSt) return false;
+    if (srch && !a.u.toLowerCase().includes(srch.toLowerCase())) return false;
+    return true;
+  });
+}
+
+/* ============================================================================
+   SEÇÃO 10 — AÇÕES DO USUÁRIO
+   ========================================================================= */
+
+// Marca ou desmarca uma tarefa no checklist
+// Ao desmarcar, todas as tarefas subsequentes também são desmarcadas
+async function toggleTarefa(aid, tid) {
+  const a = fa(aid); if (!a) return;
+  const idx = a.c.indexOf(tid);
+  if (idx >= 0) {
+    a.c = a.c.filter(id => id < tid);
+  } else {
+    const ap = TAREFAS.filter(t => t.id < tid).map(t => t.id);
+    if (ap.every(id => a.c.includes(id))) {
+      a.c.push(tid);
+      a.c.sort((x, y) => x - y);
+    }
+  }
+  render();
+  await saveAudit(a);
+}
+
+
+// Reseta todos os dados para o estado inicial
+async function resetData() {
+  if (!confirm("Resetar todas as tarefas concluídas? Esta ação não pode ser desfeita.")) return;
+  const batch = db.batch();
+  IA.forEach(a => {
+    batch.update(db.collection("auditorias").doc(String(a.id)), { c: [] });
+  });
+  await batch.commit();
+  showToast("✓ Dados resetados");
+}
+
+// Abre modal de edição de prazo
+function openEP(aid, e) { mData = { aid, e }; modal = "ep"; render(); }
+
+// Fecha qualquer modal aberto
+function closeModal() { modal = null; mData = {}; render(); }
+
+// Abre modal de notificações
+function openNotify() { modal = "notify"; render(); }
+
+// Salva o prazo editado no Firestore
+async function savePeriod() {
+  const a = fa(mData.aid); if (!a) return;
+  const s = document.getElementById("ms").value;
+  const e = document.getElementById("me").value;
+  if (!s || !e) return;
+  const [sy, sm, sd] = s.split("-");
+  const [ey, em, ed] = e.split("-");
+  a["p" + mData.e] = `${sd}/${sm}/${sy} a ${ed}/${em}/${ey}`;
+  modal = null;
+  render();
+  await savePeriods(a);
+  showToast("✓ Prazo atualizado");
+}
+
+/* ============================================================================
+   SEÇÃO 11 — SISTEMA DE NOTIFICAÇÕES POR E-MAIL
+   Nota: este sistema registra os alertas localmente e exibe no log.
+   Para envio real de e-mails, integre com Firebase Cloud Functions +
+   SendGrid ou similar.
+   ========================================================================= */
+
+function checkNotifs() {
+  if (!NS.emails.length) return;
+  const now = new Date();
+  const ds = now.toLocaleDateString("pt-BR");
+  const ts = now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  let sent = 0;
+
+  audits.forEach(a => {
+    if (a.c.length === 26) return;
+    const dl = getAD(a); if (!dl) return;
+
+    // Alerta de prazo próximo
+    NS.alertDays.forEach(d => {
+      if (dl.days === d) {
+        const key = `notif_${a.u}_e${dl.etapa}_d${d}_${ds}`;
+        if (!NL.find(l => l.key === key)) {
+          NL.unshift({ key, message: `${a.u} — Etapa ${dl.etapa} (${EN[dl.etapa]}): ${d} dia(s) para o prazo`, to: NS.emails.join(", "), datetime: `${ds} ${ts}`, status: "sent" });
+          sent++;
+        }
+      }
+    });
+
+    // Alerta de atraso
+    if (dl.days < 0) {
+      const key = `atrasada_${a.u}_e${dl.etapa}_${ds}`;
+      if (!NL.find(l => l.key === key)) {
+        NL.unshift({ key, message: `${a.u} — Etapa ${dl.etapa} (${EN[dl.etapa]}): ${Math.abs(dl.days)} dia(s) de atraso`, to: NS.emails.join(", "), datetime: `${ds} ${ts}`, status: "sent" });
+        sent++;
+      }
+    }
+  });
+
+  if (NL.length > 50) NL = NL.slice(0, 50);
+  saveNotifConfig();
+  if (sent) showToast(`📧 ${sent} notificação(ões) registrada(s)`);
+}
+
+function addEmail() {
+  const inp = document.getElementById("nei"); if (!inp) return;
+  const v = inp.value.trim();
+  if (!v || !/\S+@\S+\.\S+/.test(v)) { showToast("⚠ E-mail inválido"); return; }
+  if (NS.emails.includes(v)) { showToast("⚠ Já cadastrado"); return; }
+  NS.emails.push(v); inp.value = ""; saveNotifConfig(); render();
+}
+function removeEmail(e) { NS.emails = NS.emails.filter(x => x !== e); saveNotifConfig(); render(); }
+function toggleDay(d) {
+  const i = NS.alertDays.indexOf(d);
+  if (i >= 0) NS.alertDays.splice(i, 1); else NS.alertDays.push(d);
+  NS.alertDays.sort((a, b) => b - a); saveNotifConfig(); render();
+}
+function saveNotify() { modal = null; checkNotifs(); render(); showToast("✓ Notificações configuradas"); }
+function testEmail() {
+  if (!NS.emails.length) { showToast("⚠ Adicione ao menos um e-mail"); return; }
+  const now = new Date();
+  NL.unshift({ key: `test_${Date.now()}`, message: "E-mail de teste enviado", to: NS.emails.join(", "), datetime: now.toLocaleDateString("pt-BR") + " " + now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }), status: "sent" });
+  saveNotifConfig(); render(); showToast("📧 E-mail de teste enviado!");
+}
+
+/* ============================================================================
+   SEÇÃO 12 — EXPORTAR CSV
+   ========================================================================= */
+
+function exportCSV() {
+  const rows = [["Unidade", "Responsável", "Formato", "Status", "Progresso (%)", "Etapa Atual", "Prazo Fim", "Dias Restantes"]];
+  audits.forEach(a => {
+    const st = getSt(a); const et = getCE(a); const dl = getAD(a);
+    rows.push([a.u, a.r, a.f, SL[st], Math.round(a.c.length / 26 * 100), et > 3 ? "Concluída" : `Etapa ${et}: ${EN[et]}`, dl ? dl.period.split(" a ")[1] : "—", dl ? dl.days : "—"]);
+  });
+  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "auditorias_crc_2026.csv"; a.click(); URL.revokeObjectURL(a.href);
+  showToast("✓ CSV exportado com sucesso");
+}
+
+/* ============================================================================
+   SEÇÃO 13 — ÍCONES SVG (usados na interface)
+   ========================================================================= */
+
+function ico(n) {
+  const I = {
+    chart:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>`,
+    list:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>`,
+    bell:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`,
+    user:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+    pin:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`,
+    clock:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+    check:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>`,
+    lock:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
+    edit:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+    search: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+    back:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>`,
+    grid:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`,
+    rows:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="5"/><rect x="3" y="10" width="18" height="5"/><rect x="3" y="17" width="18" height="5"/></svg>`,
+    mail:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>`,
+    warn:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+    export: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
+  };
+  return `<span style="width:16px;height:16px;display:inline-flex;align-items:center;vertical-align:middle">${I[n] || ""}</span>`;
+}
+
+/* ============================================================================
+   SEÇÃO 14 — FUNÇÕES DE RENDERIZAÇÃO (HTML)
+   Cada função monta um pedaço da interface como string HTML.
+   ========================================================================= */
+
+// Barra superior
+function topbar() {
+  const bc = NS.emails.length ? `<span style="background:#fff;color:#003366;border-radius:20px;padding:1px 6px;font-size:10px">${NS.emails.length}</span>` : "";
+  return `<div class="topbar">
+    <div class="topbar-brand">
+      <div class="topbar-logo">CFC</div>
+      <span class="topbar-name">Gestão de <span>Auditorias CRC</span></span>
+    </div>
+    <div class="topbar-right">
+      <div class="fb-status">
+        <div class="fb-dot" title="Status da conexão Firebase"></div>
+      </div>
+      <span class="topbar-year">Plano 2026 · ${audits.length} auditorias</span>
+      <button class="btn-notify" onclick="openNotify()">${ico("bell")} Notificações ${bc}</button>
+    </div>
+  </div>`;
+}
+
+// Sidebar com filtros
+function sidebar() {
+  const rs = [...new Set(IA.map(a => a.r))];
+  return `<div class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">Visualizações</div>
+      <div class="nav-item active">${ico("grid")} Dashboard</div>
+      <div class="nav-item" style="opacity:.45;cursor:not-allowed">${ico("list")} Cronograma</div>
+      <div class="nav-item" style="opacity:.45;cursor:not-allowed">${ico("chart")} Análises</div>
+    </div>
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-filter">
+      <div class="filter-group">
+        <label>Buscar</label>
+        <div class="search-wrap-sb">${ico("search")}
+          <input class="search-input-sb" placeholder="Buscar unidade..." value="${esc(srch)}" oninput="srch=this.value;render()">
+        </div>
+      </div>
+      <div class="filter-group">
+        <label>Responsável</label>
+        <select class="filter-select" onchange="fResp=this.value;render()">
+          <option value="Todos" ${fResp === "Todos" ? "selected" : ""}>Todos</option>
+          ${rs.map(r => `<option value="${r}" ${fResp === r ? "selected" : ""}>${r}</option>`).join("")}
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Formato</label>
+        <select class="filter-select" onchange="fFmt=this.value;render()">
+          <option value="Todos"   ${fFmt === "Todos"   ? "selected" : ""}>Todos</option>
+          <option value="remota"  ${fFmt === "remota"  ? "selected" : ""}>Remota</option>
+          <option value="in loco" ${fFmt === "in loco" ? "selected" : ""}>In Loco</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Status</label>
+        <select class="filter-select" onchange="fSt=this.value;render()">
+          <option value="Todos"        ${fSt === "Todos"        ? "selected" : ""}>Todos</option>
+          <option value="em_andamento" ${fSt === "em_andamento" ? "selected" : ""}>Em Andamento</option>
+          <option value="atrasada"     ${fSt === "atrasada"     ? "selected" : ""}>Atrasada</option>
+          <option value="proxima"      ${fSt === "proxima"      ? "selected" : ""}>Prazo Próximo</option>
+          <option value="concluida"    ${fSt === "concluida"    ? "selected" : ""}>Concluída</option>
+          <option value="aguardando"   ${fSt === "aguardando"   ? "selected" : ""}>Aguardando</option>
+        </select>
+      </div>
+      <button class="btn-reset-sb" onclick="resetData()">↺ Resetar Dados</button>
+    </div>
+  </div>`;
+}
+
+// Faixa de estatísticas no topo do dashboard
+function statsStrip(st) {
+  const tiles = [
+    { l: "Total",         v: st.total,        c: "#003366", sub: "auditorias",    fs: "Todos" },
+    { l: "Em Andamento",  v: st.em_andamento, c: "#0067C5", sub: "em execução",   fs: "em_andamento" },
+    { l: "Atrasadas",     v: st.atrasada,     c: "#C0392B", sub: "requerem atenção", fs: "atrasada" },
+    { l: "Prazo Próximo", v: st.proxima,      c: "#C8A951", sub: "até 7 dias",    fs: "proxima" },
+    { l: "Concluídas",    v: st.concluida,    c: "#1A7A4A", sub: "finalizadas",   fs: "concluida" },
+    { l: "Progresso",     v: st.avg + "%",    c: "#6B7A99", sub: "média geral",   fs: "Todos" },
+  ];
+  return `<div class="stats-strip">
+    ${tiles.map(t => `<div class="stat-tile" style="--tc:${t.c}" onclick="fSt='${t.fs}';render()">
+      <div class="stat-label">${t.l}</div>
+      <div class="stat-value">${t.v}</div>
+      <div class="stat-sub">${t.sub}</div>
+    </div>`).join("")}
+  </div>`;
+}
+
+// Donut chart de distribuição por status
+function donut(statuses, total) {
+  if (!total) return "";
+  const r = 36, cx = 50, cy = 50, sw = 14, circ = 2 * Math.PI * r;
+  let off = 0, circles = "";
+  statuses.forEach(s => {
+    if (!s.count) return;
+    const pct = s.count / total, dash = pct * circ, gap = circ - dash;
+    circles += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${sw}" stroke-dasharray="${dash} ${gap}" stroke-dashoffset="${circ * .25 - off}" transform="rotate(-90 ${cx} ${cy})"/>`;
+    off -= dash;
+  });
+  return `<svg viewBox="0 0 100 100" width="80" height="80" style="display:block;margin:0 auto 6px">
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#E8EDF4" stroke-width="${sw}"/>
+    ${circles}
+    <text x="${cx}" y="${cy + 1}" text-anchor="middle" dominant-baseline="middle" style="font-size:13px;font-weight:700;font-family:JetBrains Mono,monospace;fill:#003366">${total}</text>
+  </svg>`;
+}
+
+// Área de KPIs (barras por responsável + donut)
+function kpiArea(st) {
+  const br = byResp();
+  const statuses = [
+    { label: "Em Andamento", count: st.em_andamento, color: "#0067C5" },
+    { label: "Atrasada",     count: st.atrasada,     color: "#C0392B" },
+    { label: "Prazo Próximo",count: st.proxima,      color: "#C8A951" },
+    { label: "Concluída",    count: st.concluida,    color: "#1A7A4A" },
+    { label: "Aguardando",   count: st.aguardando,   color: "#6B7A99" },
+  ];
+  return `<div class="kpi-area">
+    <div class="kpi-block">
+      <div class="kpi-title">Progresso por Responsável</div>
+      ${br.map(r => `<div class="kpi-bar-row">
+        <span class="kpi-bar-name">${esc(r.name)}</span>
+        <div class="kpi-bar-track">
+          <div class="kpi-bar-fill" style="width:${r.pct}%;background:${r.pct >= 80 ? "#1A7A4A" : r.pct >= 50 ? "#C8A951" : "#0067C5"}"></div>
+        </div>
+        <span class="kpi-bar-pct">${r.pct}%</span>
+      </div>`).join("")}
+    </div>
+    <div class="kpi-donut">
+      <div class="kpi-title">Distribuição por Status</div>
+      ${donut(statuses, audits.length)}
+      <div class="kpi-legend">
+        ${statuses.filter(s => s.count > 0).map(s => `<div class="kpi-legend-item">
+          <div class="kpi-legend-dot" style="background:${s.color}"></div>
+          <span style="color:#6B7A99">${s.label}</span>
+          <span style="font-weight:700;color:#003366;margin-left:auto;font-family:JetBrains Mono,monospace;font-size:11px">${s.count}</span>
+        </div>`).join("")}
+      </div>
+    </div>
+  </div>`;
+}
+
+// Card de auditoria no dashboard
+function card(a) {
+  const st = getSt(a); const pct = Math.round((a.c.length / 26) * 100); const et = getCE(a);
+  const dl = getAD(a);
+  const ac = st === "concluida" ? "#1A7A4A" : st === "atrasada" ? "#C0392B" : st === "proxima" ? "#C8A951" : EC[Math.min(et, 3)];
+  const dw = dl && dl.days >= 0 && dl.days <= 3 ? `<span class="dl-warn">${ico("warn")} ${dl.days === 0 ? "Vence hoje" : `${dl.days}d`}</span>` : "";
+  return `<div class="audit-card" style="--ca:${ac}" onclick="selId=${a.id};render()">
+    ${dw}
+    <div class="card-hd">
+      <div>
+        <div class="card-unit">${esc(a.u)}</div>
+        <div class="card-meta">
+          <span class="meta-tag">${ico("user")} ${esc(a.r)}</span>
+          <span class="meta-tag">${ico("pin")} ${esc(a.f)}</span>
+        </div>
+      </div>
+      <span class="sbadge" style="background:${SB[st]};color:${SC[st]}">${SL[st]}</span>
+    </div>
+    <div class="prog-row">
+      <span class="prog-label">Etapa ${Math.min(et, 3)}: ${EN[Math.min(et, 3)]}</span>
+      <span class="prog-count">${a.c.length}/26</span>
+    </div>
+    <div class="prog-track">
+      <div class="prog-fill" style="width:${pct}%;background:linear-gradient(90deg,#0067C5,#C8A951,#1A7A4A)"></div>
+    </div>
+    <div class="etapas-row">
+      ${[1, 2, 3].map(e => {
+        const done = e < et || a.c.length === 26;
+        const act  = e === Math.min(et, 3) && a.c.length < 26;
+        return `<div class="ec ${done ? "done" : ""} ${act ? "active" : ""}" style="${act ? `border-color:${EC[e]};color:${EC[e]};background:${EB[e]}` : ""}">
+          ${EN[e]}${done ? " ✓" : ""}
+        </div>`;
+      }).join("")}
+    </div>
+  </div>`;
+}
+
+// Modal de edição de prazo
+function epModal(a) {
+  const e = mData.e; const p = a["p" + e];
+  const [ss, se] = p.split(" a ");
+  const [sd, sm, sy] = ss.trim().split("/");
+  const [ed, em, ey] = se.trim().split("/");
+  return `<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <div class="modal-title">Editar Prazo — Etapa ${e}</div>
+      <div class="modal-sub">${EN[e]} · ${esc(a.u)}</div>
+      <div class="modal-field">
+        <label>Data de Início</label>
+        <input id="ms" type="date" class="modal-input" value="${sy}-${sm}-${sd}">
+      </div>
+      <div class="modal-field">
+        <label>Data de Término</label>
+        <input id="me" type="date" class="modal-input" value="${ey}-${em}-${ed}">
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal()">Cancelar</button>
+        <button class="btn-save" onclick="savePeriod()">Salvar</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+// Modal de configuração de notificações
+function notifyModal() {
+  const dOpts = [1, 2, 3, 5, 7, 10, 14, 30];
+  const pend = audits.filter(a => { const dl = getAD(a); return dl && dl.days >= 0 && dl.days <= (NS.alertDays[0] || 7); }).length;
+  return `<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal notify-modal">
+      <div class="modal-title">${ico("bell")} Notificações por E-mail</div>
+      <div class="modal-sub">Alertas automáticos de prazo — Auditorias CRC 2026</div>
+      <div class="notif-sec">
+        <div class="notif-sec-title">Destinatários</div>
+        <div class="email-list">
+          ${NS.emails.length === 0 ? `<div style="font-size:12px;color:#6B7A99;padding:8px">Nenhum e-mail cadastrado.</div>` : ""}
+          ${NS.emails.map(e => `<div class="email-item">${ico("mail")}<span class="email-item-addr">${esc(e)}</span><button class="email-item-rm" onclick="removeEmail('${esc(e)}')" title="Remover">×</button></div>`).join("")}
+        </div>
+        <div class="add-email-row">
+          <input id="nei" type="email" class="add-email-inp" placeholder="usuario@email.com.br" onkeydown="if(event.key==='Enter')addEmail()">
+          <button class="btn-add-email" onclick="addEmail()">+ Adicionar</button>
+        </div>
+      </div>
+      <div class="notif-sec">
+        <div class="notif-sec-title">Antecedência do alerta</div>
+        <div class="days-chips">
+          ${dOpts.map(d => `<div class="day-chip ${NS.alertDays.includes(d) ? "sel" : ""}" onclick="toggleDay(${d})">${d}d</div>`).join("")}
+        </div>
+      </div>
+      <div class="notif-sec">
+        <div class="notif-sec-title">Prévia do e-mail</div>
+        <div class="notif-preview">
+          <div class="notif-preview-title">📧 Assunto: Alerta de Prazos — Auditorias CRC 2026 | CFC</div>
+          <div class="notif-preview-body">Olá,<br><br>Existem <b>${pend} auditoria(s)</b> com prazo próximo.<br>Destinatários: <b>${NS.emails.length > 0 ? NS.emails.join(", ") : "(nenhum)"}</b><br><br><i>Sistema de Gestão de Auditorias — CFC 2026.</i></div>
+        </div>
+      </div>
+      ${NL.length > 0 ? `<div class="notif-sec">
+        <div class="notif-sec-title">Histórico de Envios</div>
+        <div class="notif-log">
+          ${NL.slice(0, 8).map(l => `<div class="log-item sent">${ico("mail")}<span style="flex:1">${esc(l.message)}</span><span class="log-item-time">${esc(l.datetime)}</span></div>`).join("")}
+        </div>
+      </div>` : ""}
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal()">Fechar</button>
+        <button class="btn-cancel" style="color:#0067C5;border-color:#0067C5" onclick="testEmail()">📧 Teste</button>
+        <button class="btn-save" onclick="saveNotify()">Salvar</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ============================================================================
+   SEÇÃO 15 — RENDERIZAÇÃO PRINCIPAL
+   Duas views: dashboard (lista de cards) e detalhe (checklist de uma auditoria)
+   ========================================================================= */
+
+// Renderiza a tela de detalhe de uma auditoria
+function renderDetail(app) {
+  const a = fa(selId); if (!a) { selId = null; render(); return; }
+  const st = getSt(a); const pct = Math.round((a.c.length / 26) * 100); const et = getCE(a);
+
+  app.innerHTML = topbar() + `<div style="flex:1;overflow:auto">
+    <div class="detail-topbar">
+      <button class="btn-back" onclick="selId=null;render()">${ico("back")} Voltar</button>
+      <div class="detail-info">
+        <div class="detail-unit">${esc(a.u)}</div>
+        <div class="detail-meta">
+          <span class="meta-tag" style="border-color:rgba(255,255,255,.2);background:rgba(255,255,255,.1);color:rgba(255,255,255,.75)">${ico("user")} ${esc(a.r)}</span>
+          <span class="meta-tag" style="border-color:rgba(255,255,255,.2);background:rgba(255,255,255,.1);color:rgba(255,255,255,.75)">${ico("pin")} ${esc(a.f)}</span>
+          <span class="sbadge" style="background:${SB[st]};color:${SC[st]}">${SL[st]}</span>
+        </div>
+      </div>
+      <div class="detail-pct-block">
+        <div class="detail-pct">${pct}%</div>
+        <div class="detail-pct-sub">${a.c.length} de 26 tarefas</div>
+      </div>
+    </div>
+
+    <div class="detail-prog">
+      <div class="detail-prog-fill" style="width:${pct}%"></div>
+    </div>
+
+    <!-- Cards de período por etapa -->
+    <div class="periods-area">
+      ${[1, 2, 3].map(e => {
+        const p = a["p" + e];
+        const done   = e < et || a.c.length === 26;
+        const active = e === Math.min(et, 3) && a.c.length < 26;
+        const end  = pend(p); const days = du(end);
+        const wm = active && days >= 0 && days <= 7
+          ? `${days === 0 ? "Vence hoje" : `${days} dia(s) para o prazo`}`
+          : (active && days < 0 ? `${Math.abs(days)} dia(s) de atraso` : "");
+        return `<div class="period-card ${active ? "active" : ""}" style="${active ? `--eac:${EC[e]}` : ""}">
+          <div class="period-hd">
+            <div class="period-dot" style="background:${done ? "#1A7A4A" : active ? EC[e] : "#c8d0dc"}"></div>
+            <span class="period-name" style="color:${EC[e]}">Etapa ${e}: ${EN[e]}</span>
+            <button class="edit-btn" onclick="event.stopPropagation();openEP(${a.id},${e})">${ico("edit")}</button>
+          </div>
+          <div class="period-dates">${ico("clock")} ${esc(p)}</div>
+          ${wm ? `<div class="period-warn">${ico("warn")} ${esc(wm)}</div>` : ""}
+        </div>`;
+      }).join("")}
+    </div>
+
+    <!-- Checklist de tarefas por etapa -->
+    <div class="checklist-area">
+      ${[1, 2, 3].map(e => {
+        const tasks = TAREFAS.filter(t => t.e === e);
+        const dc = tasks.filter(t => a.c.includes(t.id)).length;
+        return `<div class="etapa-sec">
+          <div class="etapa-hd-row">
+            <span class="etapa-pill" style="background:${EC[e]}">ETAPA ${e}</span>
+            <span class="etapa-title">${EN[e]}</span>
+            <span class="etapa-prog">${dc}/${tasks.length}</span>
+          </div>
+          <div class="task-list">
+            ${tasks.map(t => {
+              const done  = a.c.includes(t.id);
+              const ap    = TAREFAS.filter(x => x.id < t.id).map(x => x.id);
+              const canDo = done || ap.every(id => a.c.includes(id));
+              const isNext = !done && canDo;
+              const locked = !done && !canDo;
+              return `<div class="task-row ${done ? "done" : ""} ${canDo ? "can-do" : ""} ${isNext ? "next" : ""}"
+                style="${done ? `background:${EB[e]};border-color:${EC[e]}30` : isNext ? `border-color:${EC[e]}` : ""}"
+                ${canDo ? `onclick="toggleTarefa(${a.id},${t.id})"` : ""}
+              >
+                <div class="task-check" style="${done ? `background:${EC[e]};border:none` : `border-color:${locked ? "#c8d0dc" : EC[e]}`}">
+                  ${done   ? `<span style="width:12px;height:12px;display:flex">${ico("check")}</span>` : ""}
+                  ${locked ? `<span style="width:12px;height:12px;display:flex;opacity:.3">${ico("lock")}</span>` : ""}
+                </div>
+                <span class="task-text">${esc(t.id)}. ${esc(t.n)}</span>
+                ${isNext  ? `<span class="task-badge-next" style="color:${EC[e]};background:${EB[e]}">PRÓXIMA</span>` : ""}
+                ${locked  ? `<span class="task-locked">Bloqueada</span>` : ""}
+              </div>`;
+            }).join("")}
+          </div>
+        </div>`;
+      }).join("")}
+    </div>
+  </div>
+  ${modal === "ep"     ? epModal(a)    : ""}
+  ${modal === "notify" ? notifyModal() : ""}`;
+}
+
+// Renderiza o dashboard principal
+function renderDashboard(app) {
+  const fl = filtered(); const st = stats();
+  app.innerHTML = topbar() + `<div class="app-layout">
+    ${sidebar()}
+    <div class="main-content">
+      <div class="page-header">
+        <div>
+          <h1>Dashboard de Auditorias</h1>
+          <p>Conselho Federal de Contabilidade — Plano de Trabalho 2026 · ${new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })}</p>
+        </div>
+        <button class="btn-export" onclick="exportCSV()">${ico("export")} Exportar CSV</button>
+      </div>
+      ${statsStrip(st)}
+      ${kpiArea(st)}
+      <div class="cards-area">
+        <div class="cards-area-hd">
+          <span class="cards-area-title">${fl.length} auditoria${fl.length !== 1 ? "s" : ""}</span>
+          <div class="view-toggle">
+            <button class="view-btn ${!listView ? "active" : ""}" onclick="listView=false;render()" title="Grade">${ico("grid")}</button>
+            <button class="view-btn ${listView  ? "active" : ""}" onclick="listView=true;render()"  title="Lista">${ico("rows")}</button>
+          </div>
+        </div>
+        <div class="cards-grid ${listView ? "lv" : ""}">
+          ${fl.length === 0
+            ? `<div class="empty-state"><div style="font-size:36px;margin-bottom:10px">🔍</div><p>Nenhuma auditoria encontrada.</p></div>`
+            : fl.map(a => card(a)).join("")}
+        </div>
+      </div>
+    </div>
+  </div>
+  ${modal === "notify" ? notifyModal() : ""}`;
+}
+
+// Função principal de renderização — decide qual view mostrar
+function render() {
+  const app = document.getElementById("app");
+  if (!app) return;
+  if (selId) {
+    renderDetail(app);
+  } else {
+    renderDashboard(app);
+  }
+}
+
+/* ============================================================================
+   SEÇÃO 16 — TOAST (mensagem temporária no canto da tela)
+   ========================================================================= */
+
+function showToast(msg) {
+  const o = document.querySelector(".toast"); if (o) o.remove();
+  const t = document.createElement("div");
+  t.className = "toast";
+  t.innerHTML = esc(msg);
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3200);
+}
+
+/* ============================================================================
+   SEÇÃO 17 — INICIALIZAÇÃO
+   Ponto de entrada da aplicação.
+   ========================================================================= */
+
+// Exibe loading enquanto carrega o Firebase
+document.getElementById("app").innerHTML = `
+  <div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:16px;color:#6B7A99;font-family:'Barlow',sans-serif">
+    <div style="width:36px;height:36px;border:3px solid #E8EDF4;border-top:3px solid #003366;border-radius:50%;animation:spin .7s linear infinite"></div>
+    <span style="font-size:14px">Conectando ao Firebase...</span>
+    <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+  </div>`;
+
+// Inicia o Firebase e carrega os dados
+initFirebase();
+</script>
+</body>
+</html>
