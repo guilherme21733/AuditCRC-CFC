@@ -13,6 +13,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-analytics-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 
 <style>
 /* ==========================================================================
@@ -347,7 +348,11 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
-firebase.analytics(); // Google Analytics (opcional)
+firebase.analytics();
+
+// EmailJS
+const EJS = { serviceId: "service_bl1blbr", templateId: "template_n2syx5j", publicKey: "9i-llK1EHoChc_oux" };
+emailjs.init(EJS.publicKey); // Google Analytics (opcional)
 
 // Indicador visual de conexão (ponto verde/amarelo/vermelho na topbar)
 function setFbStatus(state) {
@@ -707,41 +712,69 @@ async function savePeriod() {
    SendGrid ou similar.
    ========================================================================= */
 
-function checkNotifs() {
+async function sendEmail(toEmail, subject, body) {
+  try {
+    await emailjs.send(EJS.serviceId, EJS.templateId, {
+      to_email: toEmail,
+      subject:  subject,
+      message:  body,
+    });
+    return true;
+  } catch (err) {
+    console.error("EmailJS erro:", err);
+    return false;
+  }
+}
+
+async function checkNotifs() {
   if (!NS.emails.length) return;
   const now = new Date();
   const ds = now.toLocaleDateString("pt-BR");
   const ts = now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  let sent = 0;
+
+  const alertas = [];
 
   audits.forEach(a => {
     if (a.c.length === 26) return;
     const dl = getAD(a); if (!dl) return;
 
-    // Alerta de prazo próximo
     NS.alertDays.forEach(d => {
       if (dl.days === d) {
         const key = `notif_${a.u}_e${dl.etapa}_d${d}_${ds}`;
         if (!NL.find(l => l.key === key)) {
-          NL.unshift({ key, message: `${a.u} — Etapa ${dl.etapa} (${EN[dl.etapa]}): ${d} dia(s) para o prazo`, to: NS.emails.join(", "), datetime: `${ds} ${ts}`, status: "sent" });
-          sent++;
+          alertas.push({ key, message: `${a.u} — Etapa ${dl.etapa} (${EN[dl.etapa]}): ${d} dia(s) para o prazo`, tipo: "prazo" });
         }
       }
     });
 
-    // Alerta de atraso
     if (dl.days < 0) {
       const key = `atrasada_${a.u}_e${dl.etapa}_${ds}`;
       if (!NL.find(l => l.key === key)) {
-        NL.unshift({ key, message: `${a.u} — Etapa ${dl.etapa} (${EN[dl.etapa]}): ${Math.abs(dl.days)} dia(s) de atraso`, to: NS.emails.join(", "), datetime: `${ds} ${ts}`, status: "sent" });
-        sent++;
+        alertas.push({ key, message: `${a.u} — Etapa ${dl.etapa} (${EN[dl.etapa]}): ${Math.abs(dl.days)} dia(s) de atraso`, tipo: "atraso" });
       }
     }
   });
 
-  if (NL.length > 50) NL = NL.slice(0, 50);
-  saveNotifConfig();
-  if (sent) showToast(`📧 ${sent} notificação(ões) registrada(s)`);
+  if (!alertas.length) return;
+
+  const linhas = alertas.map(a => `• ${a.message}`).join("\n");
+  const subject = `⚠ Alerta de Prazos — Auditorias CRC 2026 | CFC`;
+  const body = `Olá,\n\nOs seguintes alertas foram identificados no sistema de Gestão de Auditorias CRC 2026:\n\n${linhas}\n\nAcesse o sistema para verificar os detalhes.\n\n— Sistema de Gestão de Auditorias | CFC 2026`;
+
+  let sent = 0;
+  for (const email of NS.emails) {
+    const ok = await sendEmail(email, subject, body);
+    if (ok) sent++;
+  }
+
+  if (sent > 0) {
+    alertas.forEach(a => {
+      NL.unshift({ key: a.key, message: a.message, to: NS.emails.join(", "), datetime: `${ds} ${ts}`, status: "sent" });
+    });
+    if (NL.length > 50) NL = NL.slice(0, 50);
+    saveNotifConfig();
+    showToast(`📧 ${alertas.length} alerta(s) enviado(s) por e-mail`);
+  }
 }
 
 function addEmail() {
@@ -758,11 +791,20 @@ function toggleDay(d) {
   NS.alertDays.sort((a, b) => b - a); saveNotifConfig(); render();
 }
 function saveNotify() { modal = null; checkNotifs(); render(); showToast("✓ Notificações configuradas"); }
-function testEmail() {
+async function testEmail() {
   if (!NS.emails.length) { showToast("⚠ Adicione ao menos um e-mail"); return; }
+  showToast("📧 Enviando e-mail de teste...");
+  const subject = "✅ Teste — Sistema de Auditorias CRC 2026 | CFC";
+  const body = `Olá,\n\nEste é um e-mail de teste do Sistema de Gestão de Auditorias CRC 2026.\n\nSe você recebeu esta mensagem, a integração está funcionando corretamente.\n\nDestinatários configurados: ${NS.emails.join(", ")}\nAntecedência de alertas: ${NS.alertDays.join(", ")} dias\n\n— Sistema de Gestão de Auditorias | CFC 2026`;
+  let ok = 0;
+  for (const email of NS.emails) {
+    const sent = await sendEmail(email, subject, body);
+    if (sent) ok++;
+  }
   const now = new Date();
   NL.unshift({ key: `test_${Date.now()}`, message: "E-mail de teste enviado", to: NS.emails.join(", "), datetime: now.toLocaleDateString("pt-BR") + " " + now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }), status: "sent" });
-  saveNotifConfig(); render(); showToast("📧 E-mail de teste enviado!");
+  saveNotifConfig(); render();
+  showToast(ok > 0 ? "✅ E-mail de teste enviado com sucesso!" : "⚠ Falha ao enviar — verifique o EmailJS");
 }
 
 /* ============================================================================
