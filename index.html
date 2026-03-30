@@ -385,6 +385,40 @@ input, select, button, textarea { font-family: inherit; }
 .ham-filter-group { padding: 0 16px; margin-bottom: 12px; }
 .ham-filter-label { font-size: 10px; font-weight: 700; color: rgba(255,255,255,.3); text-transform: uppercase; letter-spacing: .08em; display: block; margin-bottom: 5px; }
 
+/* ── LOGIN ── */
+.login-screen { position:fixed;inset:0;z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px;
+  background-image:var(--cfc-bg-url);background-size:cover;background-position:center bottom; }
+.login-screen::before { content:'';position:absolute;inset:0;background:rgba(0,30,70,.82);z-index:0; }
+.login-box { position:relative;z-index:1;background:#fff;border-radius:14px;padding:36px 36px 28px;
+  max-width:400px;width:100%;box-shadow:0 12px 48px rgba(0,0,0,.4);border-top:4px solid var(--gold); }
+.login-logo { display:flex;justify-content:center;margin-bottom:20px; }
+.login-logo img { width:72px;height:72px;object-fit:contain; }
+.login-title { font-family:var(--c);font-size:22px;font-weight:800;color:var(--navy);text-align:center;margin-bottom:4px; }
+.login-sub { font-size:12px;color:var(--s-ag);text-align:center;margin-bottom:24px; }
+.login-field { margin-bottom:14px; }
+.login-field label { display:block;font-size:11px;font-weight:700;color:var(--navy);margin-bottom:5px;text-transform:uppercase;letter-spacing:.05em; }
+.login-select,.login-input { width:100%;padding:10px 12px;border-radius:var(--r);border:1.5px solid var(--gray);
+  font-size:13px;outline:none;font-family:var(--f);color:var(--navy);transition:border-color .15s; }
+.login-select:focus,.login-input:focus { border-color:var(--blue); }
+.login-actions { display:flex;flex-direction:column;gap:8px;margin-top:20px; }
+.btn-login-primary { padding:11px;border-radius:var(--r);border:none;background:var(--navy);color:#fff;
+  font-size:14px;font-weight:700;cursor:pointer;transition:background .15s;font-family:var(--f); }
+.btn-login-primary:hover { background:var(--blue); }
+.btn-login-visitor { padding:10px;border-radius:var(--r);border:1.5px solid var(--gray);background:#fff;
+  font-size:13px;font-weight:600;cursor:pointer;color:var(--s-ag);transition:all .15s;font-family:var(--f); }
+.btn-login-visitor:hover { border-color:var(--navy);color:var(--navy); }
+.login-admin-field { display:none;margin-top:8px; }
+.login-admin-field.show { display:block; }
+.login-user-badge { display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:rgba(255,255,255,.8);
+  background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:20px;padding:4px 12px;cursor:pointer; }
+.login-user-badge:hover { background:rgba(255,255,255,.18); }
+
+/* Edição de equipe (admin) */
+.equipe-edit-btn { margin-left:auto;background:none;border:1px solid var(--gray);border-radius:var(--r);padding:5px 10px;font-size:11px;font-weight:600;cursor:pointer;color:var(--s-ag);display:flex;align-items:center;gap:5px;transition:all .15s; }
+.equipe-edit-btn:hover { background:var(--offwhite);color:var(--navy); }
+.equipe-edit-grid { display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px; }
+@media(max-width:500px){ .equipe-edit-grid { grid-template-columns:1fr; } }
+
 </style>
 </head>
 <body>
@@ -598,6 +632,74 @@ let fEtapa   = "Todos";   // filtro por etapa
 let chartModal = null;    // modal de gráfico de distribuição
 let chartTab = "geral";   // aba ativa no modal de gráfico
 let menuOpen = false;     // menu hambúrguer aberto/fechado
+let hierOverride = {};    // overrides de hierarquia salvos no Firestore
+
+// ── AUTH ──
+const ADMIN_HASH = "7541cd9138348da33796a61d863efb85d26ed3ac9ff5d18d0e5d08f4da5df14f";
+let currentUser = null; // { name, role } ou null (visitante)
+
+async function hashStr(str) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
+}
+
+// Retorna hierarquia efetiva (override do admin tem prioridade sobre HIER)
+function getHier(u) {
+  return Object.assign({}, HIER[u] || {}, hierOverride[u] || {});
+}
+
+function getUserRole(name) {
+  // Mapeia nome → auditorias onde é responsável ou revisor
+  const n = name.toUpperCase().trim();
+  const asResp  = audits.filter(a => a.r && a.r.toUpperCase() === n).map(a => a.id);
+  const asRevisor = audits.filter(a => {
+    const h = getHier(a.u);
+    return (h.coResp || "").toUpperCase() === n || (h.contabil || "").toUpperCase() === n;
+  }).map(a => a.id);
+  const all = [...new Set([...asResp, ...asRevisor])];
+  return { name, isAdmin: false, isVisitor: false, auditIds: all };
+}
+
+function canCheckTask(auditId) {
+  if (!currentUser) return false;
+  if (currentUser.isAdmin) return true;
+  if (currentUser.isVisitor) return false;
+  return currentUser.auditIds.includes(auditId);
+}
+
+async function doLogin() {
+  const sel = document.getElementById("login-name-sel");
+  if (!sel) return;
+  const name = sel.value;
+  if (!name) { showToast("⚠ Selecione seu nome"); return; }
+
+  if (name === "ADMIN") {
+    const pw = document.getElementById("login-pw") ? document.getElementById("login-pw").value : "";
+    const h = await hashStr(pw);
+    if (h !== ADMIN_HASH) { showToast("⚠ Senha incorreta"); return; }
+    currentUser = { name: "Administrador", isAdmin: true, isVisitor: false, auditIds: [] };
+  } else {
+    currentUser = getUserRole(name);
+  }
+  render();
+}
+
+function doVisitor() {
+  currentUser = { name: "Visitante", isAdmin: false, isVisitor: true, auditIds: [] };
+  render();
+}
+
+function doLogout() {
+  currentUser = null;
+  render();
+}
+
+function toggleAdminField() {
+  const sel = document.getElementById("login-name-sel");
+  const af = document.getElementById("login-admin-field");
+  if (!sel || !af) return;
+  af.classList.toggle("show", sel.value === "ADMIN");
+}
 
 /* ============================================================================
    SEÇÃO 6 — FIREBASE: SEED + LISTENER EM TEMPO REAL
@@ -616,6 +718,13 @@ async function initFirebase() {
       });
       await batch.commit();
       showToast("✓ Banco de dados inicializado com sucesso");
+    }
+
+    // Carrega hierarquia customizada pelo admin
+    const hierSnap = await db.collection("config").doc("hierarquia").get();
+    if (hierSnap.exists) {
+      const data = hierSnap.data();
+      Object.keys(data).forEach(k => { hierOverride[k] = data[k]; });
     }
 
     // Carrega configurações de notificação
@@ -787,6 +896,7 @@ function filtered() {
 // Marca ou desmarca uma tarefa no checklist
 // Ao desmarcar, todas as tarefas subsequentes também são desmarcadas
 async function toggleTarefa(aid, tid) {
+  if (!canCheckTask(aid)) { showToast("⚠ Você não tem permissão para marcar tarefas nesta auditoria"); return; }
   const a = fa(aid); if (!a) return;
   const idx = a.c.indexOf(tid);
   if (idx >= 0) {
@@ -815,7 +925,33 @@ async function resetData() {
 }
 
 // Abre modal de edição de prazo
-function openEP(aid, e) { mData = { aid, e }; modal = "ep"; render(); }
+function openEP(aid, e) {
+  if (!currentUser || currentUser.isVisitor) { showToast("⚠ Sem permissão para editar prazos"); return; }
+  if (!currentUser.isAdmin && !canCheckTask(aid)) { showToast("⚠ Apenas o responsável ou admin pode editar prazos"); return; }
+  mData = { aid, e }; modal = "ep"; render();
+}
+
+// Edição de equipe (admin)
+function openEditEquipe(uid) { mData = { uid }; modal = "editEquipe"; render(); }
+
+async function saveEditEquipe() {
+  const uid = mData.uid;
+  const fields = ["resp","coResp","contabil","labelResp","labelCoResp","labelContabil","roleResp","roleCoResp","roleContabil"];
+  const data = {};
+  fields.forEach(f => {
+    const el = document.getElementById("ee-" + f);
+    if (el && el.value.trim()) data[f] = el.value.trim();
+  });
+  if (!hierOverride[uid]) hierOverride[uid] = {};
+  Object.assign(hierOverride[uid], data);
+  try {
+    await db.collection("config").doc("hierarquia").set(hierOverride);
+    modal = null; render();
+    showToast("✓ Equipe atualizada com sucesso");
+  } catch(e) {
+    showToast("⚠ Erro ao salvar");
+  }
+}
 
 // Fecha qualquer modal aberto
 function closeModal() { modal = null; mData = {}; render(); }
@@ -877,8 +1013,9 @@ async function addNote(aid) {
   const authorEl = document.getElementById("note-author-sel");
   const textEl   = document.getElementById("note-text-inp");
   if (!authorEl || !textEl) return;
-  const author = authorEl.value;
+  const author = (currentUser && !currentUser.isAdmin && !currentUser.isVisitor) ? currentUser.name : authorEl.value;
   const text   = textEl.value.trim();
+  if (currentUser && currentUser.isVisitor) { showToast("⚠ Visitantes não podem escrever notas"); return; }
   if (!author) { showToast("⚠ Selecione o responsável"); return; }
   if (!text)   { showToast("⚠ Escreva a nota antes de enviar"); return; }
   const now = new Date();
@@ -1080,6 +1217,7 @@ function topbar() {
       </div>
       <span class="topbar-year">Plano 2026 · ${audits.length} auditorias</span>
       <button class="btn-suporte" onclick="openSuporte()">${ico("mail")} Suporte</button>
+      <span class="login-user-badge" onclick="doLogout()" title="Clique para sair">${ico("user")} ${esc(currentUser ? currentUser.name : "")} &nbsp;✕</span>
       <button class="btn-notify" onclick="openNotify()">${ico("bell")} Notificações ${bc}</button>
     </div>
   </div>`;
@@ -1222,7 +1360,7 @@ function card(a) {
   const dl = getAD(a);
   const ac = st === "concluida" ? "#1A7A4A" : st === "atrasada" ? "#C0392B" : st === "proxima" ? "#C8A951" : EC[Math.min(et, 3)];
   const dw = dl && dl.days >= 0 && dl.days <= 3 ? `<span class="dl-warn">${ico("warn")} ${dl.days === 0 ? "Vence hoje" : `${dl.days}d`}</span>` : "";
-  const h = HIER[a.u] || {};
+  const h = getHier(a.u);
   const hierHtml = h.coResp ? `<div class="hier-row">
     <span class="hier-badge hier-auditor">${ico("user")} Revisor: ${esc(h.coResp)}</span>
     ${h.contabil ? `<span class="hier-badge hier-contabil">Cont.: ${esc(h.contabil)}</span>` : ""}
@@ -1369,7 +1507,7 @@ function suporteModal() {
 function renderDetail(app) {
   const a = fa(selId); if (!a) { selId = null; render(); return; }
   const st = getSt(a); const pct = Math.round((a.c.length / 26) * 100); const et = getCE(a);
-  const h = HIER[a.u] || {};
+  const h = getHier(a.u);
 
   // Build notes HTML
   const notes = notesCache[a.id] || [];
@@ -1407,20 +1545,21 @@ function renderDetail(app) {
     <!-- Bloco de equipe / hierarquia -->
     <div class="equipe-block">
       <div class="equipe-item">
-        <span class="equipe-label">Auditor Responsável</span>
-        <span class="equipe-name">${esc(a.r)}</span>
-        <span class="equipe-role">Auditor</span>
+        <span class="equipe-label">${esc(h.labelResp || "Auditor Responsável")}</span>
+        <span class="equipe-name">${esc(h.resp || a.r)}</span>
+        <span class="equipe-role">${esc(h.roleResp || "Auditor")}</span>
       </div>
       ${h.coResp ? `<div class="equipe-item">
-        <span class="equipe-label">Co-responsável / Revisor</span>
+        <span class="equipe-label">${esc(h.labelCoResp || "Co-responsável / Revisor")}</span>
         <span class="equipe-name">${esc(h.coResp)}</span>
-        <span class="equipe-role">Auditor / Revisor</span>
+        <span class="equipe-role">${esc(h.roleCoResp || "Auditor / Revisor")}</span>
       </div>` : ""}
       ${h.contabil ? `<div class="equipe-item">
-        <span class="equipe-label">Auditor Contábil</span>
+        <span class="equipe-label">${esc(h.labelContabil || "Auditor Contábil")}</span>
         <span class="equipe-name">${esc(h.contabil)}</span>
-        <span class="equipe-role">Auditor Contábil / Revisor</span>
+        <span class="equipe-role">${esc(h.roleContabil || "Auditor Contábil / Revisor")}</span>
       </div>` : ""}
+      ${currentUser && currentUser.isAdmin ? `<button class="equipe-edit-btn" onclick="openEditEquipe('${a.u}')">${ico("edit")} Editar equipe</button>` : ""}
     </div>
 
     <!-- Cards de período por etapa -->
@@ -1484,10 +1623,10 @@ function renderDetail(app) {
     <div class="notes-area">
       <div class="notes-title">${ico("mail")} Diário de Notas</div>
       <div class="notes-form">
-        <div class="notes-form-row">
+        <div class="notes-form-row" style="${currentUser && !currentUser.isAdmin ? 'display:none' : ''}">
           <select id="note-author-sel" class="notes-select">
-            <option value="">— Selecione o responsável —</option>
-            ${RESPONSAVEIS.map(r => `<option value="${r}">${r}</option>`).join("")}
+            <option value="${currentUser && !currentUser.isAdmin && !currentUser.isVisitor ? currentUser.name : ''}">${currentUser && !currentUser.isAdmin && !currentUser.isVisitor ? currentUser.name : '— Selecione o responsável —'}</option>
+            ${currentUser && currentUser.isAdmin ? RESPONSAVEIS.map(r => `<option value="${r}">${r}</option>`).join("") : ""}
           </select>
         </div>
         <textarea id="note-text-inp" class="notes-textarea" placeholder="Escreva a nota aqui... (não poderá ser editada ou apagada)"></textarea>
@@ -1498,9 +1637,10 @@ function renderDetail(app) {
       <div class="note-list">${notesListHtml}</div>
     </div>
   </div>
-  ${modal === "ep"      ? epModal(a)      : ""}
-  ${modal === "notify"  ? notifyModal()  : ""}
-  ${modal === "suporte" ? suporteModal() : ""}`;
+  ${modal === "ep"         ? epModal(a)        : ""}
+  ${modal === "notify"    ? notifyModal()    : ""}
+  ${modal === "suporte"   ? suporteModal()   : ""}
+  ${modal === "editEquipe"? editEquipeModal(): ""}`;
 }
 
 // Modal de gráfico de distribuição por etapa
@@ -1595,6 +1735,96 @@ function chartDistModal() {
   </div>`;
 }
 
+// Tela de login
+function loginScreen() {
+  const names = ["ALGARENE","CARLOS","DIRCEU","MÁRCIO","Ana Luiza","Vera","Felipe","ADMIN"];
+  return `<div class="login-screen">
+    <div class="login-box">
+      <div class="login-logo"><img src="data:image/jpeg;base64,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" alt="CFC"></div>
+      <div class="login-title">Gestão de Auditorias</div>
+      <div class="login-sub">CFC e CRCs — Plano de Trabalho 2026</div>
+      <div class="login-field">
+        <label>Quem é você?</label>
+        <select id="login-name-sel" class="login-select" onchange="toggleAdminField()">
+          <option value="">— Selecione seu nome —</option>
+          ${names.map(n => `<option value="${n}">${n === "ADMIN" ? "🔐 Administrador" : n}</option>`).join("")}
+        </select>
+      </div>
+      <div id="login-admin-field" class="login-admin-field">
+        <div class="login-field" style="margin-bottom:0">
+          <label>Senha do administrador</label>
+          <input id="login-pw" type="password" class="login-input" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()">
+        </div>
+      </div>
+      <div class="login-actions">
+        <button class="btn-login-primary" onclick="doLogin()">Entrar</button>
+        <button class="btn-login-visitor" onclick="doVisitor()">Entrar como visitante (somente leitura)</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+// Modal de edição de equipe (admin)
+function editEquipeModal() {
+  const uid = mData.uid;
+  const h = getHier(uid);
+  const a = audits.find(x => x.u === uid) || {};
+  return `<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal" style="max-width:520px">
+      <div class="modal-title">${ico("edit")} Editar Equipe — ${esc(uid)}</div>
+      <div class="modal-sub">Alterações salvas no banco e visíveis para todos imediatamente.</div>
+      <div class="equipe-edit-grid">
+        <div class="modal-field">
+          <label>Nome — Auditor Responsável</label>
+          <input id="ee-resp" class="modal-input" value="${esc(h.resp || a.r || '')}" placeholder="Nome do auditor">
+        </div>
+        <div class="modal-field">
+          <label>Cargo — Auditor Responsável</label>
+          <input id="ee-labelResp" class="modal-input" value="${esc(h.labelResp || 'Auditor Responsável')}" placeholder="Ex: Auditor Responsável">
+        </div>
+        <div class="modal-field">
+          <label>Descrição do cargo</label>
+          <input id="ee-roleResp" class="modal-input" value="${esc(h.roleResp || 'Auditor')}" placeholder="Ex: Auditor">
+        </div>
+      </div>
+      <div style="height:1px;background:var(--gray);margin:10px 0"></div>
+      <div class="equipe-edit-grid">
+        <div class="modal-field">
+          <label>Nome — Co-responsável</label>
+          <input id="ee-coResp" class="modal-input" value="${esc(h.coResp || '')}" placeholder="Nome do co-responsável">
+        </div>
+        <div class="modal-field">
+          <label>Cargo — Co-responsável</label>
+          <input id="ee-labelCoResp" class="modal-input" value="${esc(h.labelCoResp || 'Co-responsável / Revisor')}" placeholder="Ex: Co-responsável / Revisor">
+        </div>
+        <div class="modal-field">
+          <label>Descrição do cargo</label>
+          <input id="ee-roleCoResp" class="modal-input" value="${esc(h.roleCoResp || 'Auditor / Revisor')}" placeholder="Ex: Auditor / Revisor">
+        </div>
+      </div>
+      <div style="height:1px;background:var(--gray);margin:10px 0"></div>
+      <div class="equipe-edit-grid">
+        <div class="modal-field">
+          <label>Nome — Auditor Contábil</label>
+          <input id="ee-contabil" class="modal-input" value="${esc(h.contabil || '')}" placeholder="Nome do auditor contábil">
+        </div>
+        <div class="modal-field">
+          <label>Cargo — Auditor Contábil</label>
+          <input id="ee-labelContabil" class="modal-input" value="${esc(h.labelContabil || 'Auditor Contábil')}" placeholder="Ex: Auditor Contábil">
+        </div>
+        <div class="modal-field">
+          <label>Descrição do cargo</label>
+          <input id="ee-roleContabil" class="modal-input" value="${esc(h.roleContabil || 'Auditor Contábil / Revisor')}" placeholder="Ex: Auditor Contábil / Revisor">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal()">Cancelar</button>
+        <button class="btn-save" onclick="saveEditEquipe()">${ico("check")} Salvar</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 // Renderiza o dashboard principal
 function renderDashboard(app) {
   const fl = filtered(); const st = stats();
@@ -1666,6 +1896,10 @@ function renderDashboard(app) {
 function render() {
   const app = document.getElementById("app");
   if (!app) return;
+  if (!currentUser) {
+    app.innerHTML = loginScreen();
+    return;
+  }
   if (selId) {
     renderDetail(app);
   } else {
