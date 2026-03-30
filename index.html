@@ -857,9 +857,17 @@ let notesCache = {}; // cache local { auditId: [notas] }
 
 async function loadNotes(aid) {
   try {
-    const snap = await db.collection("notas").where("aid", "==", aid).orderBy("ts", "desc").get();
-    notesCache[aid] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Sem orderBy para evitar necessidade de índice composto no Firestore
+    const snap = await db.collection("notas").where("aid", "==", aid).get();
+    const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Ordena por dtLocal decrescente no lado do cliente
+    docs.sort((a, b) => {
+      if (a.ts && b.ts && a.ts.toMillis) return b.ts.toMillis() - a.ts.toMillis();
+      return (b.dtLocal || "").localeCompare(a.dtLocal || "");
+    });
+    notesCache[aid] = docs;
   } catch(e) {
+    console.error("Erro ao carregar notas:", e);
     notesCache[aid] = [];
   }
   render();
