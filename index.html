@@ -1461,7 +1461,7 @@ function card(a) {
   const dw = dl && dl.days >= 0 && dl.days <= 3 ? `<span class="dl-warn">${ico("warn")} ${dl.days === 0 ? "Vence hoje" : `${dl.days}d`}</span>` : "";
   const h = getHier(a.u);
   const hierHtml = h.coResp ? `<div class="hier-row">
-    <span class="hier-badge hier-auditor">${ico("user")} Revisor: ${esc(h.coResp)}</span>
+    <span class="hier-badge hier-auditor">${ico("user")} Co-responsável: ${esc(h.coResp)}</span>
     ${h.contabil ? `<span class="hier-badge hier-contabil">Cont.: ${esc(h.contabil)}</span>` : ""}
   </div>` : "";
   return `<div class="audit-card" style="--ca:${ac}" onclick="selId=${a.id};loadNotes(${a.id})">
